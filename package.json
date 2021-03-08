@@ -29,9 +29,10 @@
     "printWidth": 80,
     "semi": true,
     "singleQuote": true,
-    "trailingComma": "es5"
+    "trailingComma": "es5",
+    "tabWidth": 4
   },
-  "name": "event",
+  "name": "@netcodejs/event",
   "author": "moruiyi",
   "module": "dist/event.esm.js",
   "size-limit": [

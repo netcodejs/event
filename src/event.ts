@@ -1,12 +1,13 @@
 export interface EventLisnter {
-    fn: Function,
-    context?: any,
-    once?: boolean
+    fn: Function;
+    context?: any;
+    once?: boolean;
 }
 
 export interface EventContainer {
-    single?: EventLisnter
-    multiple?: EventLisnter[]
+    single?: EventLisnter;
+    multiple?: EventLisnter[];
+    running: boolean;
 }
 
 function fastRemove(arr: any[], index: number) {
@@ -15,18 +16,33 @@ function fastRemove(arr: any[], index: number) {
 }
 
 export class Event {
-    protected _containerMap: Record<string, EventContainer | undefined> = {}
+    protected _containerMap: Record<string, EventContainer | undefined> = {};
+    protected _cache: { args: IArguments; type: 'on' | 'off' }[] = [];
     on(event: string, fn: Function, context?: any, once?: boolean) {
         if (!this._containerMap[event]) {
             this._containerMap[event] = {
                 single: {
-                    fn, context, once
-                }
-            }
+                    fn,
+                    context,
+                    once,
+                },
+                running: false,
+            };
         } else {
             const container = this._containerMap[event]!;
-            container.multiple = [container.single!, { fn, context, once }];
-            container.single = undefined;
+            if (container.running) {
+                this._cache.push({ args: arguments, type: 'on' });
+            } else {
+                if (container.single) {
+                    container.multiple = [
+                        container.single!,
+                        { fn, context, once },
+                    ];
+                    container.single = undefined;
+                } else {
+                    container.multiple!.push({ fn, context, once });
+                }
+            }
         }
     }
 
@@ -37,33 +53,48 @@ export class Event {
     off(event: string, fn: Function, context?: any) {
         const container = this._containerMap[event];
         if (!container) return false;
-        if (container.single) {
-            const fc = container.single;
-            if (fc.fn === fn && fc.context === context) {
-                return this._containerMap[event] = undefined, true;
-            }
+        if (container.running) {
+            this._cache.push({ args: arguments, type: 'off' });
+            return true;
         } else {
-            const fcList = container.multiple!;
-            for (let i = 0, len = fcList.length; i < len; i++) {
-                const fc = fcList[0];
+            if (container.single) {
+                const fc = container.single;
                 if (fc.fn === fn && fc.context === context) {
-                    fastRemove(fcList, i);
-                    if (fcList.length === 1) {
-                        container.single = fcList[0];
-                        container.multiple = undefined;
+                    return (this._containerMap[event] = undefined), true;
+                }
+            } else {
+                const fcList = container.multiple!;
+                for (let i = 0, len = fcList.length; i < len; i++) {
+                    const fc = fcList[0];
+                    if (fc.fn === fn && fc.context === context) {
+                        fastRemove(fcList, i);
+                        if (fcList.length === 1) {
+                            container.single = fcList[0];
+                            container.multiple = undefined;
+                        }
+                        return true;
                     }
-                    return true;
                 }
             }
         }
         return false;
     }
 
-    emit(event: string, a1?: any, a2?: any, a3?: any, a4?: any, a5?: any, a6?: any) {
+    emit(
+        event: string,
+        a1?: any,
+        a2?: any,
+        a3?: any,
+        a4?: any,
+        a5?: any,
+        a6?: any
+    ) {
         const container = this._containerMap[event];
         if (!container) return 0;
+        container.running = true;
         const parmLen = arguments.length;
         let args: any[] | null = null;
+        let effectCount = 0;
         if (container.single) {
             const fc = container.single;
             if (fc.once) {
@@ -71,50 +102,65 @@ export class Event {
             }
             switch (parmLen) {
                 case 1:
-                    return fc.fn.call(fc.context), 1
+                    fc.fn.call(fc.context);
+                    break;
                 case 2:
-                    return fc.fn.call(fc.context, a1), 1
+                    fc.fn.call(fc.context, a1);
+                    break;
                 case 3:
-                    return fc.fn.call(fc.context, a1, a2), 1
+                    fc.fn.call(fc.context, a1, a2);
+                    break;
                 case 4:
-                    return fc.fn.call(fc.context, a1, a2, a3), 1
+                    fc.fn.call(fc.context, a1, a2, a3);
+                    break;
                 case 5:
-                    return fc.fn.call(fc.context, a1, a2, a3, a4), 1
+                    fc.fn.call(fc.context, a1, a2, a3, a4);
+                    break;
                 case 6:
-                    return fc.fn.call(fc.context, a1, a2, a3, a4, a5), 1
+                    fc.fn.call(fc.context, a1, a2, a3, a4, a5);
+                    break;
                 case 7:
-                    return fc.fn.call(fc.context, a1, a2, a3, a4, a5, a6), 1
+                    fc.fn.call(fc.context, a1, a2, a3, a4, a5, a6);
+                    break;
                 default:
                     if (!args) {
-                        args = new Array(parmLen - 1)
+                        args = new Array(parmLen - 1);
                         for (let j = 1; j < parmLen; j++) {
                             args[j - 1] = arguments[j];
                         }
                     }
-                    return fc.fn.apply(fc.context, args), 1;
+                    fc.fn.apply(fc.context, args);
             }
+            effectCount = 1;
         } else {
             const fcList = container.multiple!;
             for (let i = 0, fcLen = fcList.length; i < fcLen; i++) {
                 const fc = fcList[i];
                 switch (parmLen) {
                     case 1:
-                        fc.fn.call(fc.context); break;
+                        fc.fn.call(fc.context);
+                        break;
                     case 2:
-                        fc.fn.call(fc.context, a1); break;
+                        fc.fn.call(fc.context, a1);
+                        break;
                     case 3:
-                        fc.fn.call(fc.context, a1, a2); break;
+                        fc.fn.call(fc.context, a1, a2);
+                        break;
                     case 4:
-                        fc.fn.call(fc.context, a1, a2, a3); break;
+                        fc.fn.call(fc.context, a1, a2, a3);
+                        break;
                     case 5:
-                        fc.fn.call(fc.context, a1, a2, a3, a4); break;
+                        fc.fn.call(fc.context, a1, a2, a3, a4);
+                        break;
                     case 6:
-                        fc.fn.call(fc.context, a1, a2, a3, a4, a5); break;
+                        fc.fn.call(fc.context, a1, a2, a3, a4, a5);
+                        break;
                     case 7:
-                        fc.fn.call(fc.context, a1, a2, a3, a4, a5, a6); break;
+                        fc.fn.call(fc.context, a1, a2, a3, a4, a5, a6);
+                        break;
                     default:
                         if (!args) {
-                            args = new Array(parmLen - 1)
+                            args = new Array(parmLen - 1);
                             for (let j = 1; j < parmLen; j++) {
                                 args[j - 1] = arguments[j];
                             }
@@ -122,8 +168,23 @@ export class Event {
                         fc.fn.apply(fc.context, args);
                 }
             }
-            return fcList.length;
+            effectCount = fcList.length;
         }
+        container.running = false;
+        if (this._cache.length > 0) {
+            for (let c of this._cache) {
+                c.type === 'on'
+                    ? this.on.call(
+                          this,
+                          c.args[0],
+                          c.args[1],
+                          c.args[2],
+                          c.args[3]
+                      )
+                    : this.off.call(this, c.args[0], c.args[1], c.args[2]);
+            }
+        }
+        return effectCount;
     }
 
     offAll(event: string) {
